@@ -1,0 +1,112 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: RAG Factory Infrastructure
+
+Parameters:
+  S3BucketName:
+    Type: String
+    Description: S3 bucket for storing raw HTML and processed data
+  DynamoDBTableName:
+    Type: String
+    Description: DynamoDB table for state tracking
+  PineconeIndexName:
+    Type: String
+    Description: Pinecone index name
+  PineconeAPIKey:
+    Type: String
+    NoEcho: true
+    Description: Pinecone API key
+  OpenAIAPIKey:
+    Type: String
+    NoEcho: true
+    Description: OpenAI API key
+
+Globals:
+  Function:
+    Timeout: 900
+    MemorySize: 512
+    Runtime: python3.10
+    Environment:
+      Variables:
+        S3_BUCKET_NAME: !Ref S3BucketName
+        DYNAMODB_TABLE_NAME: !Ref DynamoDBTableName
+        PINECONE_INDEX_NAME: !Ref PineconeIndexName
+        PINECONE_API_KEY: !Ref PineconeAPIKey
+        OPENAI_API_KEY: !Ref OpenAIAPIKey
+        AWS_REGION: !Ref AWS::Region
+
+Resources:
+  ScraperFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: rag-factory-scraper
+      CodeUri: lambda/scraper/
+      Handler: handler.lambda_handler
+      Description: Scrapes content from URLs/sitemaps
+      Policies:
+        - S3WritePolicy:
+            BucketName: !Ref S3BucketName
+        - DynamoDBCrudPolicy:
+            TableName: !Ref DynamoDBTableName
+
+  ProcessorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: rag-factory-processor
+      CodeUri: lambda/processor/
+      Handler: handler.lambda_handler
+      Description: Processes and chunks content, generates embeddings
+      Policies:
+        - S3ReadPolicy:
+            BucketName: !Ref S3BucketName
+        - DynamoDBCrudPolicy:
+            TableName: !Ref DynamoDBTableName
+
+  EvaluatorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: rag-factory-evaluator
+      CodeUri: lambda/evaluator/
+      Handler: handler.lambda_handler
+      Description: Evaluates data quality
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref DynamoDBTableName
+
+  PromoterFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: rag-factory-promoter
+      CodeUri: lambda/promoter/
+      Handler: handler.lambda_handler
+      Description: Promotes data from staging to production
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref DynamoDBTableName
+
+  APIFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: rag-factory-api
+      CodeUri: lambda/api/
+      Handler: handler.lambda_handler
+      Description: API endpoints for retrieval and TV output
+      Policies:
+        - S3ReadPolicy:
+            BucketName: !Ref S3BucketName
+      Events:
+        RetrievalAPI:
+          Type: Api
+          Properties:
+            Path: /retrieval
+            Method: get
+        TVAPI:
+          Type: Api
+          Properties:
+            Path: /tv
+            Method: get
+
+Outputs:
+  APIGatewayURL:
+    Description: API Gateway endpoint URL
+    Value: !Sub https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod
