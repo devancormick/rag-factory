@@ -77,12 +77,12 @@ def lambda_handler(event, context):
                 failed += 1
                 continue
             
-            # Get URL from DynamoDB state
-            # Extract URL hash from S3 key (format: dataset/raw/{hash}.html)
-            url_hash = s3_key.split("/")[-1].replace(".html", "")
-            # We'd need to query DynamoDB by s3_key to get URL
-            # For simplicity, assume we have URL in metadata or event
-            url = event.get("url_map", {}).get(s3_key, "")
+            # Get URL from DynamoDB state using S3 key
+            url_state = dynamodb_manager.get_url_by_s3_key(dataset_name, s3_key)
+            if not url_state:
+                failed += 1
+                continue
+            url = url_state.get("url", "")
             
             # Clean text
             cleaned_text = cleaner.clean_html(html_content)

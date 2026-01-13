@@ -41,10 +41,22 @@ def lambda_handler(event, context):
         storage_type="dynamodb" if dynamodb_table else "memory",
         table_name=dynamodb_table
     )
-    evaluator = Evaluator(golden_query_manager)
+    
+    # Create query function for evaluator
+    def query_func(embedding, dataset_name, namespace):
+        """Query Pinecone with embedding."""
+        return pinecone_manager.query(
+            query_embedding=embedding,
+            dataset_name=dataset_name,
+            top_k=5,
+            namespace=namespace
+        )
+    
+    evaluator = Evaluator(golden_query_manager, query_func=query_func)
     
     dataset_name = event.get("dataset_name")
     action = event.get("action", "evaluate")
+    namespace = event.get("namespace", "staging")
     
     if not dataset_name:
         return {
@@ -60,7 +72,8 @@ def lambda_handler(event, context):
         if action == "evaluate":
             result = evaluator.evaluate_dataset(
                 dataset_name=dataset_name,
-                query_embedding_func=query_embedding_func
+                query_embedding_func=query_embedding_func,
+                namespace=namespace
             )
             return {
                 "statusCode": 200,

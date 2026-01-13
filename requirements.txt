@@ -9,8 +9,8 @@ streamlit>=1.28.0
 
 # Web scraping
 urllib3>=2.0.0
-robotparser>=1.0.0
-sitemap-parser>=0.5.0
+# robotparser is part of Python standard library (urllib.robotparser)
+# sitemap parsing implemented using standard library xml.etree.ElementTree
 
 # Text processing
 tiktoken>=0.5.0

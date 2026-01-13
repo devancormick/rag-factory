@@ -96,6 +96,34 @@ class DynamoDBManager:
             return True
         return False
     
+    def get_url_by_s3_key(self, dataset_name: str, s3_key: str) -> Optional[Dict[str, Any]]:
+        """Get URL state by S3 key.
+        
+        Args:
+            dataset_name: Name of the dataset
+            s3_key: S3 key to look up
+            
+        Returns:
+            URL state dict or None if not found
+        """
+        try:
+            # Scan for items with matching dataset and s3_key
+            # Note: This is inefficient for large tables - consider using GSI in production
+            response = self.table.scan(
+                FilterExpression="dataset = :dataset AND s3_key = :s3_key",
+                ExpressionAttributeValues={
+                    ":dataset": dataset_name,
+                    ":s3_key": s3_key
+                }
+            )
+            
+            items = response.get("Items", [])
+            if items:
+                return items[0]
+            return None
+        except ClientError as e:
+            raise Exception(f"Failed to get URL by S3 key: {e}")
+    
     def _get_timestamp(self) -> str:
         """Get current timestamp as ISO string."""
         from datetime import datetime

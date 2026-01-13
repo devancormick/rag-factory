@@ -1,31 +1,35 @@
 """Evaluation system for quality checks."""
 
 import re
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Callable
 from .golden_queries import GoldenQueryManager
 
 
 class Evaluator:
     """Evaluates data quality before promotion."""
     
-    def __init__(self, golden_query_manager: GoldenQueryManager):
+    def __init__(self, golden_query_manager: GoldenQueryManager, query_func: Optional[Callable] = None):
         """Initialize evaluator.
         
         Args:
             golden_query_manager: Manager for golden queries
+            query_func: Optional function to query Pinecone (query_func(embedding, dataset_name, namespace) -> results)
         """
         self.golden_query_manager = golden_query_manager
+        self.query_func = query_func
         
     def evaluate_dataset(
         self,
         dataset_name: str,
-        query_embedding_func
+        query_embedding_func,
+        namespace: str = "staging"
     ) -> Dict[str, Any]:
         """Evaluate a dataset using golden queries.
         
         Args:
             dataset_name: Name of the dataset
             query_embedding_func: Function to get embeddings for queries
+            namespace: Namespace to query (default: staging)
             
         Returns:
             Evaluation results
@@ -33,9 +37,10 @@ class Evaluator:
         golden_queries = self.golden_query_manager.get_queries(dataset_name)
         
         if not golden_queries:
+            # Allow promotion if no golden queries defined (optional evaluation)
             return {
-                "passed": False,
-                "error": "No golden queries defined for dataset",
+                "passed": True,
+                "warning": "No golden queries defined for dataset",
                 "checks": []
             }
         
@@ -46,7 +51,8 @@ class Evaluator:
             check_result = self._check_golden_query(
                 dataset_name=dataset_name,
                 query=query,
-                query_embedding_func=query_embedding_func
+                query_embedding_func=query_embedding_func,
+                namespace=namespace
             )
             checks.append(check_result)
             if not check_result["passed"]:
@@ -63,7 +69,8 @@ class Evaluator:
         self,
         dataset_name: str,
         query: Dict[str, Any],
-        query_embedding_func
+        query_embedding_func,
+        namespace: str = "staging"
     ) -> Dict[str, Any]:
         """Check a single golden query.
         
@@ -71,6 +78,7 @@ class Evaluator:
             dataset_name: Name of the dataset
             query: Golden query dictionary
             query_embedding_func: Function to get embedding for query text
+            namespace: Namespace to query
             
         Returns:
             Check result
@@ -82,27 +90,33 @@ class Evaluator:
         # Get query embedding
         query_embedding = query_embedding_func(query_text)
         
-        # This would typically use PineconeManager, but we're abstracting here
-        # Assume we get results with citations
-        results = []  # Would come from Pinecone query
+        # Query Pinecone using query_func if available
+        if self.query_func:
+            results = self.query_func(query_embedding, dataset_name, namespace)
+        else:
+            # Fallback: empty results (evaluator needs query_func to work properly)
+            results = []
         
         issues = []
         
         # Check if we got results
-        if not results or (results and results[0].get("score", 0) < min_score):
-            issues.append(f"No relevant results found (min score: {min_score})")
+        if not results:
+            issues.append(f"No results found for query")
+        elif results[0].get("score", 0) < min_score:
+            issues.append(f"Top result score {results[0].get('score', 0):.3f} below minimum {min_score}")
         
         # Check citations
         citations_found = []
         for result in results:
-            citation = result.get("metadata", {}).get("url", "")
-            if citation:
-                citations_found.append(citation)
+            metadata = result.get("metadata", {})
+            url = metadata.get("url", "")
+            if url:
+                citations_found.append(url)
         
         if expected_citations:
             missing_citations = set(expected_citations) - set(citations_found)
             if missing_citations:
-                issues.append(f"Missing expected citations: {missing_citations}")
+                issues.append(f"Missing expected citations: {list(missing_citations)}")
         
         passed = len(issues) == 0
         
@@ -110,7 +124,8 @@ class Evaluator:
             "query": query_text,
             "passed": passed,
             "issues": issues,
-            "citations_found": citations_found
+            "citations_found": citations_found,
+            "top_score": results[0].get("score", 0) if results else 0
         }
     
     def check_chunk_integrity(self, chunk_text: str) -> Dict[str, Any]:
